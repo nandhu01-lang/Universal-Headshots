@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+*.local
+
+# Logs
+logs
+*.log
+
+# Environment files (keep .env.example)
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.sw?
+*.suo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Firebase (sensitive)
+*v2/server/src/config/service-account.json
+*v2/server/src/config/vertex-key.json
+*google-services.json
+*GoogleService-Info*.plist
+*universalheadshot*.json
+
+# Backup files
+web_dashboard_backup/
+
+# Large assets (optional)
+# assets/images/*.png

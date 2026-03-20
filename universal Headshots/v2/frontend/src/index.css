@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    @apply bg-[#0A0A0F] text-white antialiased;
+    font-family: 'Inter', sans-serif;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-white/5 border border-white/10 backdrop-blur-xl rounded-[32px];
+  }
+  
+  .premium-button {
+    @apply h-14 px-8 rounded-full font-black italic tracking-tighter flex items-center justify-center transition-all active:scale-95;
+  }
+  
+  .btn-primary {
+    @apply bg-white text-black shadow-xl shadow-white/5 hover:bg-gray-100;
+  }
+  
+  .btn-gradient {
+    @apply bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-lg shadow-violet-500/20 hover:from-violet-500 hover:to-indigo-500;
+  }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-20px); }
+  100% { transform: translateY(0px); }
+}
