@@ -1,8 +1,9 @@
-import { db, admin } from '../config/firebase.js';
+import db from '../config/supabase.js';
 import logger from '../utils/logger.js';
 
 /**
  * Handle RevenueCat Webhooks for Universal Headshots purchases.
+ * Supports both Supabase and Firebase backends.
  * 
  * Product IDs (update these to match your RevenueCat dashboard):
  * - universal_headshots_starter ($9.99) - 20 images, 5 styles
@@ -31,8 +32,6 @@ export async function handleRevenueCatWebhook(req, res) {
     logger.info({ eventType: type, productId: product_id, userId: app_user_id }, '📦 RevenueCat Webhook Received');
 
     if (type === 'INITIAL_PURCHASE' || type === 'RENEWAL' || type === 'PRODUCT_CHANGE') {
-      const userRef = db.collection('users').doc(app_user_id);
-      
       // Determine credits and tier based on product ID
       let imageCreditsToAdd = 0;
       let refineCreditsToAdd = 0;
@@ -57,39 +56,86 @@ export async function handleRevenueCatWebhook(req, res) {
         refineCreditsToAdd = 2; // Edit 2 images → 8 generated
       }
 
-      const updateData: any = {
-        updatedAt: new Date().toISOString()
-      };
+      // Try Supabase first, fallback to Firebase
+      if (db.supabase) {
+        // Supabase: Use upsert to create or update
+        const updates = {
+          updated_at: new Date().toISOString()
+        };
+        
+        if (imageCreditsToAdd > 0) {
+          // Use RPC call for atomic increment
+          await db.supabase.rpc('increment_image_credits', { 
+            user_id: app_user_id, 
+            amount: imageCreditsToAdd 
+          });
+        }
+        if (refineCreditsToAdd > 0) {
+          await db.supabase.rpc('increment_refine_credits', { 
+            user_id: app_user_id, 
+            amount: refineCreditsToAdd 
+          });
+        }
+        if (tier) {
+          await db.supabase.from('users').update({ tier }).eq('id', app_user_id);
+        }
+        
+        logger.info({ 
+          userId: app_user_id, 
+          productId: product_id, 
+          imageCredits: imageCreditsToAdd,
+          refineCredits: refineCreditsToAdd,
+          tier 
+        }, '💰 Payment Processed (Supabase)');
+      } else {
+        // Fallback to Firebase
+        try {
+          const { db: firestore, admin } = await import('../config/firebase.js');
+          const userRef = firestore.collection('users').doc(app_user_id);
+          
+          const updateData = {
+            updatedAt: new Date().toISOString()
+          };
 
-      if (imageCreditsToAdd > 0) {
-        updateData.imageCredits = admin.firestore.FieldValue.increment(imageCreditsToAdd);
-      }
-      if (refineCreditsToAdd > 0) {
-        updateData.refineCredits = admin.firestore.FieldValue.increment(refineCreditsToAdd);
-      }
-      if (tier) {
-        updateData.tier = tier;
-      }
+          if (imageCreditsToAdd > 0) {
+            updateData.imageCredits = admin.firestore.FieldValue.increment(imageCreditsToAdd);
+          }
+          if (refineCreditsToAdd > 0) {
+            updateData.refineCredits = admin.firestore.FieldValue.increment(refineCreditsToAdd);
+          }
+          if (tier) {
+            updateData.tier = tier;
+          }
 
-      await userRef.set(updateData, { merge: true });
-
-      logger.info({ 
-        userId: app_user_id, 
-        productId: product_id, 
-        imageCredits: imageCreditsToAdd,
-        refineCredits: refineCreditsToAdd,
-        tier 
-      }, `💰 Payment Processed Successfully`);
+          await userRef.set(updateData, { merge: true });
+          
+          logger.info({ userId: app_user_id, productId: product_id }, '💰 Payment Processed (Firebase)');
+        } catch (fbError) {
+          logger.error({ error: fbError.message }, '❌ Firebase fallback failed');
+        }
+      }
     }
 
     // Handle cancellations
     if (type === 'CANCELLATION' || type === 'EXPIRATION') {
-      const userRef = db.collection('users').doc(app_user_id);
-      await userRef.set({
-        tier: 'FREE',
-        subscriptionStatus: 'cancelled',
-        updatedAt: new Date().toISOString()
-      }, { merge: true });
+      if (db.supabase) {
+        await db.supabase.from('users').update({ 
+          tier: 'FREE',
+          subscription_status: 'cancelled',
+          updated_at: new Date().toISOString()
+        }).eq('id', app_user_id);
+      } else {
+        try {
+          const { db: firestore } = await import('../config/firebase.js');
+          await firestore.collection('users').doc(app_user_id).set({
+            tier: 'FREE',
+            subscriptionStatus: 'cancelled',
+            updatedAt: new Date().toISOString()
+          }, { merge: true });
+        } catch (e) {
+          logger.warn('Firebase not available for cancellation');
+        }
+      }
       
       logger.info({ userId: app_user_id }, '❌ Subscription Cancelled');
     }
