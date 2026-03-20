@@ -52,12 +52,6 @@ export async function createBatchJob(
   // 2. Prepare prompts with distributed counts
   if (selectedStyles.length === 0) throw new Error('No styles found for the selected category');
   
-  const genderStyles = STYLES[gender] || STYLES.MALE;
-  const selectedStyles = genderStyles[country] || genderStyles.GLOBAL || [];
-  
-  // 2. Prepare prompts with distributed counts
-  if (selectedStyles.length === 0) throw new Error('No styles found for the selected category');
-  
   const perStyle = Math.floor(totalImages / selectedStyles.length);
   const remainder = totalImages % selectedStyles.length;
 
