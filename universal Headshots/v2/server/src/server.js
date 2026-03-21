@@ -2,7 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
-import { db, bucket, auth } from './config/firebase.js';
+import { db as firebaseDb, bucket, auth as firebaseAuth } from './config/firebase.js';
+import { db as supabaseDb, supabase } from './config/supabase.js';
 import multer from 'multer';
 import rateLimit from 'express-rate-limit';
 import { checkFraud, markFreeTrialUsed } from './services/fraudService.js';
@@ -15,6 +16,8 @@ import { notifyHeadshotsReady } from './services/notificationService.js';
 import logger from './utils/logger.js';
 
 dotenv.config();
+
+const db = supabase ? supabaseDb : firebaseDb;
 
 // --- SECURITY MIDDLEWARE & CONFIG ---
 // 1. Multer Validation
@@ -35,11 +38,19 @@ const verifyAuth = async (req, res, next) => {
   if (!token) return res.status(401).json({ error: 'Authentication Required' });
 
   try {
-    const decodedToken = await auth.verifyIdToken(token);
-    req.user = decodedToken;
+    if (supabase) {
+      const { data: { user }, error } = await supabase.auth.getUser(token);
+      if (error || !user) throw new Error('Invalid Supabase Token');
+      req.user = user;
+    } else if (firebaseAuth) {
+      const decodedToken = await firebaseAuth.verifyIdToken(token);
+      req.user = decodedToken;
+    } else {
+      throw new Error('No Auth Provider Available');
+    }
     next();
   } catch (error) {
-    console.error('Auth Error:', error);
+    console.error('Auth Error:', error.message);
     res.status(401).json({ error: 'Invalid or Expired Token' });
   }
 };
@@ -86,10 +97,16 @@ app.post('/api/register-push-token', verifyAuth, async (req, res) => {
     }
 
     // Save push token to user document
-    await db.collection('users').doc(userId).set({
-      pushToken,
-      pushTokenUpdatedAt: new Date().toISOString()
-    }, { merge: true });
+    if (supabase) {
+      await db.users.update(userId, {
+        push_token: pushToken
+      });
+    } else if (db && db.collection) {
+      await db.collection('users').doc(userId).set({
+        pushToken,
+        pushTokenUpdatedAt: new Date().toISOString()
+      }, { merge: true });
+    }
 
     logger.info({ userId, token: pushToken.substring(0, 20) + '...' }, '📬 Push token registered');
     
@@ -147,12 +164,17 @@ app.post('/api/generate', verifyAuth, upload.array('photos', 12), async (req, re
       return res.status(403).json(fraudResult);
     }
 
-    // 4. Upload to GCS
+    // 4. Upload to GCS (or alternative storage)
     const userPhotos = [];
-    for (const file of files) {
-      const gcsFile = bucket.file(`uploads/${userId}/${Date.now()}_${file.originalname}`);
-      await gcsFile.save(file.buffer, { contentType: file.mimetype });
-      userPhotos.push(`gs://${bucket.name}/${gcsFile.name}`);
+    if (bucket) {
+      for (const file of files) {
+        const gcsFile = bucket.file(`uploads/${userId}/${Date.now()}_${file.originalname}`);
+        await gcsFile.save(file.buffer, { contentType: file.mimetype });
+        userPhotos.push(`gs://${bucket.name}/${gcsFile.name}`);
+      }
+    } else {
+      console.warn("⚠️ GCS Bucket not configured, skipping photo upload");
+      // Placeholder for Supabase Storage logic if needed
     }
 
     // 5. Mark Trial Used if FREE
@@ -241,9 +263,17 @@ app.get('/api/batch-status/:batchId', verifyAuth, async (req, res) => {
  */
 app.get('/api/refinement-status/:refineId', verifyAuth, async (req, res) => {
   try {
-    const doc = await db.collection('refinements').doc(req.params.refineId).get();
-    if (!doc.exists) return res.status(404).json({ error: 'Refinement not found' });
-    res.json(doc.data());
+    if (supabase) {
+      const { data, error } = await db.refinements.get(req.params.refineId);
+      if (error || !data) return res.status(404).json({ error: 'Refinement not found' });
+      return res.json(data);
+    } else if (db && db.collection) {
+      const doc = await db.collection('refinements').doc(req.params.refineId).get();
+      if (!doc.exists) return res.status(404).json({ error: 'Refinement not found' });
+      return res.json(doc.data());
+    } else {
+      return res.status(500).json({ error: 'Database not configured' });
+    }
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

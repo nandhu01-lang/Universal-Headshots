@@ -122,6 +122,20 @@ export const db = {
   },
 
   /**
+   * Refinements table operations
+   */
+  refinements: {
+    async get(refineId) {
+      const { data, error } = await supabase
+        .from('refinements')
+        .select('*')
+        .eq('id', refineId)
+        .single();
+      return { data, error };
+    }
+  },
+
+  /**
    * Fraud prevention operations
    */
   fraudPrevention: {
