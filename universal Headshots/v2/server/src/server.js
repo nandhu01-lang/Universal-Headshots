@@ -2,6 +2,22 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
+
+dotenv.config();
+
+if (process.env.VERTEX_CREDENTIALS_JSON) {
+  try {
+    const credsPath = path.join(process.cwd(), 'vertex-key-temp.json');
+    fs.writeFileSync(credsPath, process.env.VERTEX_CREDENTIALS_JSON);
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = credsPath;
+    console.log('[Setup] Vertex AI credentials written to temp file');
+  } catch (err) {
+    console.error('Failed to write vertex credentials:', err.message);
+  }
+}
+
 import { db as firebaseDb, bucket, auth as firebaseAuth } from './config/firebase.js';
 import { db as supabaseDb, supabase } from './config/supabase.js';
 import multer from 'multer';
