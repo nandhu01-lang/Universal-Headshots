@@ -70,12 +70,20 @@ export async function createBatchJob(
     }
   });
 
-  // 3. Update job metadata to Firestore
-  await db.collection('batches').doc(batchId).update({
-    styles: selectedStyles.map(s => s.name),
-    gcsOutputPath: gcsOutputDir,
-    imageCount: totalImages
-  });
+  // 3. Update job metadata to DB
+  if (db.batches && db.batches.update) {
+    await db.batches.update(batchId, {
+      styles: selectedStyles.map(s => s.name),
+      gcsOutputPath: gcsOutputDir,
+      imageCount: totalImages
+    });
+  } else if (db.collection) {
+    await db.collection('batches').doc(batchId).update({
+      styles: selectedStyles.map(s => s.name),
+      gcsOutputPath: gcsOutputDir,
+      imageCount: totalImages
+    });
+  }
 
   // 4. Trigger Batch Prediction (Vertex AI Integration)
   try {
@@ -99,7 +107,11 @@ export async function createBatchJob(
     })).join('\n');
 
     const inputUri = `${gcsOutputDir}/input.jsonl`;
-    await bucket.file(`results/${userId}/${batchId}/input.jsonl`).save(jsonlContent);
+    if (bucket) {
+      await bucket.file(`results/${userId}/${batchId}/input.jsonl`).save(jsonlContent);
+    } else {
+      console.warn("⚠️ GCS Bucket missing, skipping input.jsonl save");
+    }
 
     // Call Vertex AI with tier-specific model
     const vertexModel = modelId.includes('fast') 
@@ -124,14 +136,21 @@ export async function createBatchJob(
 
     logger.info({ batchId, userId, jobId: response.name }, `📡 Vertex AI Batch Triggered`);
     
-    await db.collection('batches').doc(batchId).update({
+    if (db.batches && db.batches.update) {
+      await db.batches.update(batchId, {
         vertexJobName: response.name,
         status: 'PROCESSING'
-    });
+      });
+    } else if (db.collection) {
+      await db.collection('batches').doc(batchId).update({
+          vertexJobName: response.name,
+          status: 'PROCESSING'
+      });
+    }
 
     return { batchId, status: 'PROCESSING', imageCount: totalImages };
   } catch (error) {
-    logger.error({ error, batchId, userId }, 'Vertex AI Trigger Failed (Falling back to Simulation)');
+    logger.error({ error: error.message, batchId, userId }, 'Vertex AI Trigger Failed (Falling back to Simulation)');
     // If it fails (e.g. model not enabled), we log it but don't crash the whole flow
     return { batchId, status: 'PROCESSING', simulated: true };
   }
