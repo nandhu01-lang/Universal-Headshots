@@ -9,7 +9,8 @@ dotenv.config();
 
 if (process.env.VERTEX_CREDENTIALS_JSON) {
   try {
-    const credsPath = path.join(process.cwd(), 'vertex-key-temp.json');
+    // [THE LEAD ARCHITECT] Fixed: Write to /tmp for serverless compatibility (Vercel/Railway)
+    const credsPath = path.join('/tmp', 'vertex-key-temp.json');
     fs.writeFileSync(credsPath, process.env.VERTEX_CREDENTIALS_JSON);
     process.env.GOOGLE_APPLICATION_CREDENTIALS = credsPath;
     console.log('[Setup] Vertex AI credentials written to temp file');
@@ -30,8 +31,6 @@ import { createZipStream } from './services/zipService.js';
 import { getTierConfig, validateImageCount, getModelForTier } from './config/tiers.js';
 import { notifyHeadshotsReady } from './services/notificationService.js';
 import logger from './utils/logger.js';
-
-dotenv.config();
 
 const db = supabase ? supabaseDb : firebaseDb;
 
@@ -189,8 +188,8 @@ app.post('/api/generate', verifyAuth, upload.array('photos', 12), async (req, re
         userPhotos.push(`gs://${bucket.name}/${gcsFile.name}`);
       }
     } else {
-      console.warn("⚠️ GCS Bucket not configured, skipping photo upload");
-      // Placeholder for Supabase Storage logic if needed
+      // [THE QC BOT] Fixed: Do not proceed without storage. AI engine will fail on empty gs:// paths.
+      throw new Error("Storage bucket not configured. Cannot process images.");
     }
 
     // 5. Mark Trial Used if FREE
