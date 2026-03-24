@@ -1,4 +1,5 @@
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://universal-headshots.onrender.com/api';
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'https://universal-headshots.onrender.com';
+const API_URL = `${BASE_URL.replace(/\/$/, '')}/api`;
 
 export default {
   API_URL,
