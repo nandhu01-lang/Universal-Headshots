@@ -179,17 +179,31 @@ app.post('/api/generate', verifyAuth, upload.array('photos', 12), async (req, re
       return res.status(403).json(fraudResult);
     }
 
-    // 4. Upload to GCS (or alternative storage)
+    // 4. Primary Storage (Supabase) & Ephemeral Staging (GCS)
     const userPhotos = [];
-    if (bucket) {
-      for (const file of files) {
-        const gcsFile = bucket.file(`uploads/${userId}/${Date.now()}_${file.originalname}`);
-        await gcsFile.save(file.buffer, { contentType: file.mimetype });
-        userPhotos.push(`gs://${bucket.name}/${gcsFile.name}`);
-      }
-    } else {
-      // [THE QC BOT] Fixed: Do not proceed without storage. AI engine will fail on empty gs:// paths.
-      throw new Error("Storage bucket not configured. Cannot process images.");
+    
+    if (!supabase || !bucket) {
+      throw new Error("Missing Storage Configuration. Both Supabase (Permanent) and GCS (Ephemeral) are required.");
+    }
+
+    for (const file of files) {
+      const fileName = `${Date.now()}_${file.originalname}`;
+      
+      // A. Upload to Supabase (Permanent Source of Truth)
+      const { data: supaData, error: supaError } = await supabase.storage
+        .from('headshots')
+        .upload(`uploads/${userId}/${fileName}`, file.buffer, {
+          contentType: file.mimetype,
+          upsert: true
+        });
+        
+      if (supaError) throw new Error(`Supabase Storage Error: ${supaError.message}`);
+
+      // B. Upload to GCS (Ephemeral Pipeline for Vertex AI)
+      const gcsFile = bucket.file(`ephemeral/${userId}/${fileName}`);
+      await gcsFile.save(file.buffer, { contentType: file.mimetype });
+      
+      userPhotos.push(`gs://${bucket.name}/${gcsFile.name}`);
     }
 
     // 5. Mark Trial Used if FREE
